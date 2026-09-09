@@ -1,0 +1,86 @@
+# TailorDocs Product Requirements Document (PRD)
+
+## 1. Executive Summary
+TailorDocs is a high-performance, automated resume and cover letter tailoring tool designed for modern job seekers. It optimizes the job application process by extracting key requirements from target job descriptions, running semantic and keyword alignment analysis against an existing JSON-formatted resume, and dynamically rewriting and formatting optimized resumes and cover letters. By using a pre-configured LaTeX compiler (Tectonic) inside Docker, TailorDocs achieves clean typography and 100% readable Applicant Tracking System (ATS) outputs.
+
+---
+
+## 2. Goals & Objectives
+* **Automation**: Reduce manual resume-matching and editing time by 70%.
+* **ATS Compatibility**: Produce industry-standard resumes formatted in LaTeX (using Jake's Resume template) that parse flawlessly in standard ATS platforms (Lever, Workday, Greenhouse).
+* **Control**: Store intermediate and final resume data in structured JSON, allowing users/frontend to edit, review, and adjust contents before compiling (Stateful Editing Flow).
+* **Zero Hallucination**: Restrict the LLM to rewriting existing bullet points to target job requirements using the STAR method (Situation, Task, Action, Result) without generating fictitious credentials or experience.
+
+---
+
+## 3. Scope & Target Audience
+- **Target Audience**: Software engineers, technical managers, and corporate professionals applying to competitive roles.
+- **In-Scope**:
+  - Structured JSON resume ingestion and validation against Jake's Resume JSON Schema (Personal Info, Objective, Education, Skills, and Projects).
+  - Normalization of contact details (strings to `{ "url": "...", "display": "..." }` objects).
+  - Current milestone: stateless job-description web scraping and HTML sanitization (via BeautifulSoup) with a 15,000-character budget, user review, and fail-fast failure handling.
+  - Current milestone: manual text fallback ingestion for protected or dynamic job boards; every candidate must receive client-side user approval before later use and is not persisted by the backend.
+  - LLM-based targeted resume tailoring (via LiteLLM with `gpt-4o-mini` primary and `gemini/gemini-1.5-flash` fallback) using zero-hallucination guardrails and priority reordering.
+  - Stateful resume lifecycle: raw SQL access to PostgreSQL on AWS RDS stores baseline and tailored resume JSON with metadata (`company_name`, `position`, optional `source_url`, `is_baseline`, `parent_resume_id`). No ORM or SQLAlchemy is used.
+  - Recursive LaTeX-safe sanitization of all string outputs to prevent compilation failure.
+  - Execution of a Python JSON-to-LaTeX translation script.
+  - Compilation of LaTeX source into polished PDF via Tectonic in Docker and storage of the generated PDF in Amazon S3 for preview, download, or permanent deletion.
+- **Out-of-Scope**:
+  - Work experience ("experience") section (intentionally omitted in current version; project-focused layout).
+  - Multi-user team collaboration tools and full-scale OAuth provider setup.
+  - DOCX or HTML editing inside the app (the definitive source of truth is JSON, and final output is PDF).
+
+---
+
+## 4. Key Functional Requirements
+
+### FR-1: JSON Resume Ingestion & Validation
+* The system must accept an uploaded JSON file and validate it against the rigid schema corresponding to Jake's Resume layout.
+* Supported sections: `personal_info`, `objective`, `education`, `skills`, and `projects`.
+* Ingestion must automatically normalize string contact identifiers (email, LinkedIn, GitHub) into `{ "url": "...", "display": "..." }` object structures.
+
+### FR-2: Job Post Scraper & Fallback Ingestion
+* The current milestone must expose a stateless preview endpoint that accepts exactly one source: a job-post URL or manually pasted text. Supplying neither or both is a client error (HTTP 400).
+* For URLs, the system must extract clean text using async `httpx` with browser-like headers and BeautifulSoup, removing non-content elements (`<script>`, `<style>`, `<nav>`, `<header>`, `<footer>`, `<aside>`, `<noscript>`, `<svg>`, `<form>`).
+* Text from either source must be capped at 15,000 characters and returned as an unapproved candidate. The client must display it and receive explicit user approval before holding it for a future downstream stage. The backend must not persist it in this milestone.
+* **Fail-Fast Error Handling**: If URL scraping encounters anti-bot protections, an unusable response, or empty extracted content, the system must return `SCRAPE_BLOCKED_OR_FAILED` (HTTP 422), instructing the user/client to submit and approve manually pasted text.
+
+### FR-3: Local Semantic Alignment & Scoring
+* Map individual job requirements to relevant resume sections and skills.
+* Generate a comprehensive "ATS Alignment Score" reflecting keyword density, semantic coverage, and formatting structure.
+
+### FR-4: Bullet Point & Section Tailoring (LLM-based)
+* A single LLM call is executed with LiteLLM (primary: `gpt-4o-mini`, fallback: `gemini/gemini-1.5-flash`), taking both the cleaned job description text and the user's existing baseline resume JSON.
+* **Zero-Hallucination Constraint**: The LLM must not invent new degrees, institutions, project titles, or fake metrics.
+* **Intelligent Reordering**: Reorders skills and projects such that items and bullet points matching the target job description appear at the top, while non-matching items are preserved but moved to the bottom of their respective lists.
+* Rewrites project bullet points using the STAR method (Situation, Task, Action, Result) integrating relevant keywords from the job description.
+
+### FR-5: Stateful Resume and PDF Lifecycle
+* Store baseline and tailored JSON resumes in a PostgreSQL `resumes` table on AWS RDS using raw SQL. Do not use an ORM or SQLAlchemy.
+* Metadata tracks `id`, `parent_resume_id`, `is_baseline`, `company_name`, `position`, optional `source_url`, `data` (`JSONB` payload), `created_at`, and `updated_at`.
+* Store each generated PDF in Amazon S3. It may only be retrieved for preview or download, or deleted permanently.
+* Expose endpoints to retrieve, update, re-tailor, compile, preview/download, and delete stored resumes and generated PDFs.
+
+### FR-6: LaTeX-Safe Compilation Pipeline
+* Traversed recursively, all string properties of the JSON must be sanitized to escape LaTeX control characters (`&`, `%`, `$`, `_`, `{`, `}`, `~`, `^`, `\`).
+* A Python script must translate the sanitized JSON fields directly into a populated LaTeX source file.
+* Invoke `tectonic` inside the Docker runtime to compile the LaTeX source to a production-quality PDF.
+
+---
+
+## 5. Non-Functional Requirements
+* **Determinism & Stability**: The system must enforce that the generated JSON always parses cleanly, sanitizes correctly, and compiles without throwing LaTeX environment errors.
+* **Performance**: PDF compilation must happen in sub-second latency at runtime. This is achieved by pre-installing and caching LaTeX packages (via a mock compilation) during the Docker image build phase.
+* **Portability**: Code and system dependencies must be fully encapsulated within a single Dockerfile containing Python 3.11 and the Tectonic compiler CLI.
+
+---
+## 6. Strict Constraints & Out of Scope
+> AI Instruction: DO NOT build the following features under any circumstances.
+- **No social features:** Users cannot share resume or see other users.
+- **No payment structures:** do not implement any billing logic
+- **No complex media:** only support for text, no photos, videos, or emojis
+
+## 7. Success Criteria
+1. Successfully parse, analyze, rewrite, and compile a resume PDF in under 10 seconds total pipeline execution.
+2. Ensure 0% LaTeX compiler crash rates due to unescaped special characters.
+3. Validate that output PDFs have a 100% success rate under automated parser scans.
