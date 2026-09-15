@@ -91,88 +91,45 @@ To prevent parsing or validation failures, we enforce a strict schema correspond
 
 ```json
 {
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "Resume",
-  "type": "object",
-  "properties": {
     "personal_info": {
-      "type": "object",
-      "properties": {
-        "name": { "type": "string" },
-        "phone": { "type": "string" },
+        "name": "",
+        "phone": "",
         "email": {
-          "type": "object",
-          "properties": {
-            "url": { "type": "string" },
-            "display": { "type": "string" }
-          },
-          "required": ["url", "display"]
+            "url": "",
+            "display": ""
         },
         "linkedin": {
-          "type": "object",
-          "properties": {
-            "url": { "type": "string" },
-            "display": { "type": "string" }
-          },
-          "required": ["url", "display"]
+            "url": "",
+            "display": ""
         },
         "github": {
-          "type": "object",
-          "properties": {
-            "url": { "type": "string" },
-            "display": { "type": "string" }
-          },
-          "required": ["url", "display"]
+            "url": "",
+            "display": ""
         }
-      },
-      "required": ["name", "email", "phone"]
     },
-    "objective": { "type": "string" },
-    "education": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "institution": { "type": "string" },
-          "location": { "type": "string" },
-          "degree": { "type": "string" },
-          "duration": { "type": "string" }
-        },
-        "required": ["institution", "degree", "duration"]
-      }
-    },
-    "skills": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "title": { "type": "string" },
-          "items": {
-            "type": "array",
-            "items": { "type": "string" }
-          }
-        },
-        "required": ["title", "items"]
-      }
-    },
-    "projects": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "title": { "type": "string" },
-          "tech_stack": { "type": "string" },
-          "duration": { "type": "string" },
-          "points": {
-            "type": "array",
-            "items": { "type": "string" }
-          }
-        },
-        "required": ["title", "points"]
-      }
-    }
-  },
-  "required": ["personal_info", "education", "skills", "projects"]
+    "objective": "",
+    "education": [
+        {
+            "institution": "",
+            "location": "",
+            "degree": "",
+            "duration": ""
+        }
+    ],
+    "skills": [
+        {
+            "title": "",
+            "items": []
+        }
+    ],
+    "projects": [
+        {
+            "title": "",
+            "tech_stack": "",
+            "duration": "",
+            "points": []
+        }
+    ]
 }
 ```
 
