@@ -9,6 +9,7 @@ from app.services.tailorer import GenerationUnavailableError, InvalidResumeOutpu
 
 
 router = APIRouter(prefix="/api/tailor", tags=["tailor"])
+MAX_JOB_DESCRIPTION_LENGTH = 15_000
 
 
 def _request_error(message: str, location: tuple[str, ...] = ("body",)) -> RequestValidationError:
@@ -19,13 +20,14 @@ def _request_error(message: str, location: tuple[str, ...] = ("body",)) -> Reque
 
 @router.post("/resume", response_model=Resume)
 async def tailor_resume_route(payload: dict[str, Any] = Body(...)) -> Resume:
-    expected_fields = {"approved_job_description", "baseline_resume"}
+    expected_fields = {"job_description", "baseline_resume"}
     if set(payload) != expected_fields:
-        raise _request_error("Request must contain exactly approved_job_description and baseline_resume.")
+        raise _request_error("Request must contain exactly job_description and baseline_resume.")
 
-    job_description = payload["approved_job_description"]
+    job_description = payload["job_description"]
     if not isinstance(job_description, str) or not job_description.strip():
-        raise _request_error("approved_job_description must contain non-whitespace text.", ("body", "approved_job_description"))
+        raise _request_error("job_description must contain non-whitespace text.", ("body", "job_description"))
+    job_description = job_description[:MAX_JOB_DESCRIPTION_LENGTH]
 
     try:
         baseline_resume = Resume.model_validate(payload["baseline_resume"])

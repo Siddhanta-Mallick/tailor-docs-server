@@ -17,12 +17,11 @@ TailorDocs is a modular service with a containerized Python backend and Rust-bas
    |   |                                                                         |   |
    |   |   [API Layer]                                                           |   |
    |   |     - /api/resumes (CRUD / Import)                                      |   |
-    |   |     - /api/jobs/description/preview (Stateless JD preview)             |   |
+    |   |     - /api/tailor/resume (Direct JD tailoring)                         |   |
    |   |     - /api/compile (LaTeX compiler invoker)                             |   |
    |   |                                                                         |   |
    |   |   [Services Layer]                                                      |   |
-   |   |     - scraper.py   (Job post HTML/Markdown extraction)                  |   |
-   |   |     - analyzer.py  (Sentence embeddings mapping & TF-IDF scores)        |   |
+    |   |     - analyzer.py  (Sentence embeddings mapping & TF-IDF scores)        |   |
    |   |     - tailorer.py  (LiteLLM client + Pydantic guardrails)               |   |
    |   |     - compiler.py  (Recursive sanitization & JSON-to-LaTeX runner)       |   |
    |   +--------------------------|-------------------|--------------------------+   |
@@ -52,7 +51,6 @@ tailordocs_server/
 │   ├── main.py              # Application entrypoint & CORS setup
 │   ├── api/                 # API Routes & Schema definitions
 │   │   ├── __init__.py
-│   │   ├── jobs.py          # Stateless JD preview for URL scraping and pasted text
 │   │   ├── resumes.py       # Resume Upload, Retrieval, and Editing (CRUD)
 │   │   └── tailor.py        # ATS alignment evaluation & tailoring pipeline
 │   ├── core/                # Global configuration and PostgreSQL access
@@ -63,10 +61,8 @@ tailordocs_server/
 │   ├── models/              # Pydantic request and response schemas
 │   │   ├── __init__.py
 │   │   ├── resume.py        # Resume validation schema
-│   │   └── job.py           # Job description request and response schemas
 │   ├── services/            # Business Logic / Isolated Engine Pipelines
 │   │   ├── __init__.py
-│   │   ├── scraper.py       # Scraping and clean extraction service
 │   │   ├── analyzer.py      # Keyword extraction & SentenceTransformer embeddings
 │   │   ├── tailorer.py      # LLM structured prompt construction & execution
 │   │   └── compiler.py      # Orchestrator for JSON-to-LaTeX translating and compiling
@@ -142,7 +138,6 @@ CREATE TABLE resumes (
     is_baseline BOOLEAN NOT NULL DEFAULT FALSE,
     company_name TEXT,
     position TEXT,
-    source_url TEXT,
     data JSONB NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -159,13 +154,9 @@ Generated PDFs are stored in Amazon S3. A PDF object is available only for previ
 
 ### 4.1 Ingestion & Parsing Pipeline (Backend Core)
 1. **User Uploads / Imports**: A standard raw JSON file matching the schema is validated using Pydantic. Simple contact strings (e.g. `"user@example.com"`) are automatically normalized into `{ "url": "...", "display": "..." }` structures.
-2. **Scraper Extraction (Current Milestone)**: When given exactly one job-post URL or raw text:
-   - Scraping is triggered using an async `httpx.AsyncClient` call with browser-like headers and configurable timeouts.
-   - HTML cleanup is executed using `BeautifulSoup`: strips `<script>`, `<style>`, `<nav>`, `<header>`, `<footer>`, `<aside>`, `<noscript>`, `<svg>`, and `<form>`, extracting only meaningful content text.
-   - Plain text output is capped at **15,000 characters** to prevent context window overflow and is returned only as an unapproved `candidate_job_description`.
-   - The client displays every candidate and requires explicit user approval before holding it as `approved_job_description` for a later pipeline stage; no candidate or approval is persisted by the backend.
-   - **Fail-Fast Boundary**: If the scraper encounters an unusable URL response, it returns a `SCRAPE_BLOCKED_OR_FAILED` error, instructing the client to submit a new request using the manual text paste area and obtain approval for that candidate.
-   - No database, LLM, or resume-tailoring work is part of this ingestion milestone.
+2. **Manual Job-Description Input (Current Milestone)**: The client sends non-empty pasted text as `job_description` with the baseline resume to `POST /api/tailor/resume`.
+    - Text is capped at **15,000 characters** before it is sent to the LLM, preventing context-window overflow.
+    - The endpoint invokes the tailoring pipeline immediately; there is no URL ingestion, preview, approval, or persistence stage.
 
 ### 4.2 ATS Scoring & Semantic Mapping Pipeline
 1. **Semantic Embedding Matrix**:
@@ -230,7 +221,7 @@ Tectonic is a modern, self-bootstrapping TeX engine that dynamically fetches pac
 | **GET** | `/api/resumes/{id}` | Fetch specific stored resume | *None* | Stored JSON Resume + metadata |
 | **PUT** | `/api/resumes/{id}` | Update stored resume JSON (Manual edit support) | JSON Resume | Updated JSON Resume |
 | **GET** | `/api/resumes/` | List all stored resumes (baseline & tailored) | *None* | List of resume metadata summaries |
-| **POST** | `/api/jobs/description/preview` | Return an unapproved scraped or pasted JD candidate, without persistence | Exactly one of `{ "url": "..." }` or `{ "text": "..." }` | `{ "candidate_job_description": "...", "source": "url" or "text", "requires_user_approval": true }` |
+| **POST** | `/api/tailor/resume` | Tailor a resume using a pasted job description | `{ "job_description": "...", "baseline_resume": { ... } }` | Tailored resume JSON |
 | **POST** | `/api/resumes/{id}/compile` | Escape JSON, compile it, and store the PDF in S3 | *None* | PDF metadata |
 | **GET** | `/api/resumes/{id}/pdf` | Retrieve the generated PDF for preview or download | *None* | PDF stream |
 | **DELETE** | `/api/resumes/{id}/pdf` | Permanently delete the generated PDF from S3 | *None* | Deletion confirmation |

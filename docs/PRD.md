@@ -18,10 +18,9 @@ TailorDocs is a high-performance, automated resume and cover letter tailoring to
 - **In-Scope**:
   - Structured JSON resume ingestion and validation against Jake's Resume JSON Schema (Personal Info, Objective, Education, Skills, and Projects).
   - Normalization of contact details (strings to `{ "url": "...", "display": "..." }` objects).
-  - Current milestone: stateless job-description web scraping and HTML sanitization (via BeautifulSoup) with a 15,000-character budget, user review, and fail-fast failure handling.
-  - Current milestone: manual text fallback ingestion for protected or dynamic job boards; every candidate must receive client-side user approval before later use and is not persisted by the backend.
+  - Current milestone: direct manual job-description input with a 15,000-character budget before LLM tailoring.
   - LLM-based targeted resume tailoring (via LiteLLM with `gpt-4o-mini` primary and `gemini/gemini-1.5-flash` fallback) using zero-hallucination guardrails and priority reordering.
-  - Stateful resume lifecycle: raw SQL access to PostgreSQL on AWS RDS stores baseline and tailored resume JSON with metadata (`company_name`, `position`, optional `source_url`, `is_baseline`, `parent_resume_id`). No ORM or SQLAlchemy is used.
+  - Stateful resume lifecycle: raw SQL access to PostgreSQL on AWS RDS stores baseline and tailored resume JSON with metadata (`company_name`, `position`, `is_baseline`, `parent_resume_id`). No ORM or SQLAlchemy is used.
   - Recursive LaTeX-safe sanitization of all string outputs to prevent compilation failure.
   - Execution of a Python JSON-to-LaTeX translation script.
   - Compilation of LaTeX source into polished PDF via Tectonic in Docker and storage of the generated PDF in Amazon S3 for preview, download, or permanent deletion.
@@ -39,11 +38,9 @@ TailorDocs is a high-performance, automated resume and cover letter tailoring to
 * Supported sections: `personal_info`, `objective`, `education`, `skills`, and `projects`.
 * Ingestion must automatically normalize string contact identifiers (email, LinkedIn, GitHub) into `{ "url": "...", "display": "..." }` object structures.
 
-### FR-2: Job Post Scraper & Fallback Ingestion
-* The current milestone must expose a stateless preview endpoint that accepts exactly one source: a job-post URL or manually pasted text. Supplying neither or both is a client error (HTTP 400).
-* For URLs, the system must extract clean text using async `httpx` with browser-like headers and BeautifulSoup, removing non-content elements (`<script>`, `<style>`, `<nav>`, `<header>`, `<footer>`, `<aside>`, `<noscript>`, `<svg>`, `<form>`).
-* Text from either source must be capped at 15,000 characters and returned as an unapproved candidate. The client must display it and receive explicit user approval before holding it for a future downstream stage. The backend must not persist it in this milestone.
-* **Fail-Fast Error Handling**: If URL scraping encounters anti-bot protections, an unusable response, or empty extracted content, the system must return `SCRAPE_BLOCKED_OR_FAILED` (HTTP 422), instructing the user/client to submit and approve manually pasted text.
+### FR-2: Manual Job-Description Input
+* The tailoring endpoint accepts a manually pasted `job_description` and a baseline resume in the same request.
+* Job-description text must be non-empty and is capped at 15,000 characters before LLM tailoring. The backend does not persist the input in this milestone.
 
 ### FR-3: Local Semantic Alignment & Scoring
 * Map individual job requirements to relevant resume sections and skills.
@@ -57,7 +54,7 @@ TailorDocs is a high-performance, automated resume and cover letter tailoring to
 
 ### FR-5: Stateful Resume and PDF Lifecycle
 * Store baseline and tailored JSON resumes in a PostgreSQL `resumes` table on AWS RDS using raw SQL. Do not use an ORM or SQLAlchemy.
-* Metadata tracks `id`, `parent_resume_id`, `is_baseline`, `company_name`, `position`, optional `source_url`, `data` (`JSONB` payload), `created_at`, and `updated_at`.
+* Metadata tracks `id`, `parent_resume_id`, `is_baseline`, `company_name`, `position`, `data` (`JSONB` payload), `created_at`, and `updated_at`.
 * Store each generated PDF in Amazon S3. It may only be retrieved for preview or download, or deleted permanently.
 * Expose endpoints to retrieve, update, re-tailor, compile, preview/download, and delete stored resumes and generated PDFs.
 
