@@ -1,5 +1,7 @@
 # SPECS file for agents
 SPEC.md
+.agents/
+skills-lock.json
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

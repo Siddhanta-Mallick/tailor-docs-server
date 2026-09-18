@@ -33,7 +33,7 @@ def test_returns_only_tailored_resume(monkeypatch):
 
     response = client.post(
         "/api/tailor/resume",
-        json={"approved_job_description": "Build reliable APIs.", "baseline_resume": BASELINE},
+        json={"job_description": "Build reliable APIs.", "baseline_resume": BASELINE},
     )
 
     assert response.status_code == 200
@@ -44,7 +44,7 @@ def test_rejects_missing_or_whitespace_job_description():
     for description in (None, "  \n"):
         response = client.post(
             "/api/tailor/resume",
-            json={"approved_job_description": description, "baseline_resume": BASELINE},
+            json={"job_description": description, "baseline_resume": BASELINE},
         )
         assert response.status_code == 422
 
@@ -58,7 +58,7 @@ def test_invalid_baseline_is_rejected_before_generation(monkeypatch):
 
     response = client.post(
         "/api/tailor/resume",
-        json={"approved_job_description": "Build reliable APIs.", "baseline_resume": invalid},
+        json={"job_description": "Build reliable APIs.", "baseline_resume": invalid},
     )
 
     assert response.status_code == 422
@@ -74,7 +74,7 @@ def test_invalid_generated_resume_returns_safe_502(monkeypatch):
 
     response = client.post(
         "/api/tailor/resume",
-        json={"approved_job_description": "Build reliable APIs.", "baseline_resume": BASELINE},
+        json={"job_description": "Build reliable APIs.", "baseline_resume": BASELINE},
     )
 
     assert response.status_code == 502
@@ -84,3 +84,25 @@ def test_invalid_generated_resume_returns_safe_502(monkeypatch):
 
 def test_rejects_unknown_generated_fields():
     assert Resume.model_validate(BASELINE).model_dump() == BASELINE
+
+
+def test_truncates_pasted_job_description_before_generation(monkeypatch):
+    calls = []
+
+    async def complete(**kwargs):
+        calls.append(kwargs)
+        from types import SimpleNamespace
+
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(BASELINE)))])
+
+    monkeypatch.setattr("app.services.tailorer.acompletion", complete)
+    description = "x" * 15_001
+
+    response = client.post(
+        "/api/tailor/resume",
+        json={"job_description": description, "baseline_resume": BASELINE},
+    )
+
+    assert response.status_code == 200
+    assert description[:15_000] in calls[0]["messages"][1]["content"]
+    assert description not in calls[0]["messages"][1]["content"]
