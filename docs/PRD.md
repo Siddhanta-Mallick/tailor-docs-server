@@ -19,6 +19,7 @@ TailorDocs is a high-performance, automated resume and cover letter tailoring to
   - Structured JSON resume ingestion and validation against Jake's Resume JSON Schema (Personal Info, Objective, Education, Skills, and Projects).
   - Normalization of contact details (strings to `{ "url": "...", "display": "..." }` objects).
   - Current milestone: direct manual job-description input with a 15,000-character budget before LLM tailoring.
+   - Cognito User Pool access-token authentication for all API endpoints; the verified `sub` identifies the user.
   - LLM-based targeted resume tailoring (via LiteLLM with `gpt-4o-mini` primary and `gemini/gemini-1.5-flash` fallback) using zero-hallucination guardrails and priority reordering.
   - Stateful resume lifecycle: raw SQL access to PostgreSQL on AWS RDS stores baseline and tailored resume JSON with metadata (`company_name`, `position`, `is_baseline`, `parent_resume_id`). No ORM or SQLAlchemy is used.
   - Recursive LaTeX-safe sanitization of all string outputs to prevent compilation failure.

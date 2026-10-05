@@ -4,3 +4,4 @@ pytest
 pytest-asyncio
 litellm
 python-dotenv
+PyJWT[crypto]

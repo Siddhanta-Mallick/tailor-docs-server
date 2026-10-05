@@ -1,7 +1,9 @@
 import json
 
+import pytest
 from fastapi.testclient import TestClient
 
+from app.auth import require_user_id
 from app.main import app
 from app.models.resume import Resume
 
@@ -21,6 +23,13 @@ BASELINE = {
     "skills": [],
     "projects": [],
 }
+
+
+@pytest.fixture(autouse=True)
+def authenticated_request():
+    app.dependency_overrides[require_user_id] = lambda: "cognito-user-id"
+    yield
+    app.dependency_overrides.clear()
 
 
 def test_returns_only_tailored_resume(monkeypatch):

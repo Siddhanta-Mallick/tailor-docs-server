@@ -215,6 +215,8 @@ Tectonic is a modern, self-bootstrapping TeX engine that dynamically fetches pac
 
 ## 6. Endpoints API Design (FastAPI)
 
+All `/api/...` endpoints require a Cognito User Pool access token. The API validates the token's signature against Cognito JWKS and verifies its issuer, expiration, token use, and app-client ID before deriving the User ID from its `sub` claim. FastAPI documentation and OpenAPI endpoints are disabled.
+
 | Method | Endpoint | Description | Request Payload | Response Payload |
 | :--- | :--- | :--- | :--- | :--- |
 | **POST** | `/api/resumes/` | Upload / Import new baseline structured resume | JSON Resume | Saved JSON Resume + `id` + metadata |
