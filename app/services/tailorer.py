@@ -106,7 +106,7 @@ async def tailor_resume(job_description: str, baseline_resume: Resume) -> Resume
         content = await _complete(model, messages, schema)
     except Exception:
         try:
-            model = "gemini/gemini-1.5-flash"
+            model = "gemini/gemini-flash-lite-latest"
             content = await _complete(model, messages, schema)
         except Exception as error:
             raise GenerationUnavailableError from error

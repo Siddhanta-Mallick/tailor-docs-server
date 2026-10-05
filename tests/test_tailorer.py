@@ -41,7 +41,7 @@ async def test_primary_failure_uses_gemini_fallback(monkeypatch):
     tailored = await tailor_resume("Build reliable APIs.", Resume.model_validate(BASELINE))
 
     assert tailored == Resume.model_validate(BASELINE)
-    assert [call["model"] for call in calls] == ["gpt-4o-mini", "gemini/gemini-1.5-flash"]
+    assert [call["model"] for call in calls] == ["gpt-4o-mini", "gemini/gemini-flash-lite-latest"]
     assert calls[1]["response_format"]["type"] == "json_object"
 
 
