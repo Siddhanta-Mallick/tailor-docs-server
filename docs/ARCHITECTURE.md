@@ -16,8 +16,9 @@ TailorDocs is a modular service with a containerized Python backend and Rust-bas
    |   |                           FastAPI Web Server                            |   |
    |   |                                                                         |   |
    |   |   [API Layer]                                                           |   |
-   |   |     - /api/resumes (CRUD / Import)                                      |   |
-    |   |     - /api/tailor/resume (Direct JD tailoring)                         |   |
+    |   |     - /api/baseline-resumes (Save / list)                               |   |
+     |   |     - /api/sessions (Explicit session save / retrieval)                |   |
+     |   |     - /api/tailor/resume (Stateless tailoring)                         |   |
    |   |     - /api/compile (LaTeX compiler invoker)                             |   |
    |   |                                                                         |   |
    |   |   [Services Layer]                                                      |   |
@@ -129,22 +130,29 @@ To prevent parsing or validation failures, we enforce a strict schema correspond
 }
 ```
 
-### 3.2 PostgreSQL Resume Schema (Raw SQL)
+### 3.2 PostgreSQL Persistence Schema (Raw SQL)
 
 ```sql
-CREATE TABLE resumes (
-    id UUID PRIMARY KEY,
-    parent_resume_id UUID REFERENCES resumes(id) ON DELETE SET NULL,
-    is_baseline BOOLEAN NOT NULL DEFAULT FALSE,
-    company_name TEXT,
-    position TEXT,
-    data JSONB NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+CREATE TABLE baseline_resumes (
+    baseline_resume_id UUID PRIMARY KEY,
+    user_id VARCHAR(36) NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    resume JSONB NOT NULL
+);
+
+CREATE TABLE sessions (
+    session_id UUID PRIMARY KEY,
+    user_id VARCHAR(36) NOT NULL,
+    session_name VARCHAR(255) NOT NULL,
+    job_description VARCHAR(15000) NOT NULL,
+    baseline_resume_id UUID NOT NULL REFERENCES baseline_resumes(baseline_resume_id),
+    baseline_jd_score SMALLINT,
+    current_jd_score SMALLINT,
+    current_resume JSONB NOT NULL
 );
 ```
 
-The application issues parameterized raw SQL queries to AWS RDS. ORM and SQLAlchemy abstractions are intentionally not used.
+The application issues parameterized raw SQL queries through `psycopg`. ORM and SQLAlchemy abstractions are intentionally not used. Apply `db/schema.sql` explicitly to the local PostgreSQL database; migrations are not yet required.
 
 Generated PDFs are stored in Amazon S3. A PDF object is available only for preview/download or permanent deletion; it is not edited or exposed for unrelated object operations.
 
@@ -154,9 +162,9 @@ Generated PDFs are stored in Amazon S3. A PDF object is available only for previ
 
 ### 4.1 Ingestion & Parsing Pipeline (Backend Core)
 1. **User Uploads / Imports**: A standard raw JSON file matching the schema is validated using Pydantic. Simple contact strings (e.g. `"user@example.com"`) are automatically normalized into `{ "url": "...", "display": "..." }` structures.
-2. **Manual Job-Description Input (Current Milestone)**: The client sends non-empty pasted text as `job_description` with the baseline resume to `POST /api/tailor/resume`.
+2. **Manual Job-Description Input (Current Milestone)**: The client sends non-empty pasted text as `job_description` with one Tailoring Input to `POST /api/tailor/resume`.
     - Text is capped at **15,000 characters** before it is sent to the LLM, preventing context-window overflow.
-    - The endpoint invokes the tailoring pipeline immediately; there is no URL ingestion, preview, approval, or persistence stage.
+    - The endpoint invokes the tailoring pipeline immediately and returns a Current Resume without persisting it.
 
 ### 4.2 ATS Scoring & Semantic Mapping Pipeline
 1. **Semantic Embedding Matrix**:
@@ -170,7 +178,7 @@ Generated PDFs are stored in Amazon S3. A PDF object is available only for previ
 
 ### 4.3 LLM Bullet Point & Resume Optimizer (Single-Call Flow)
 1. **Context-Bounded Prompting**:
-   - Instruct the LLM to tailor the baseline resume JSON to match the cleaned job description text.
+    - Instruct the LLM to tailor the Tailoring Input JSON to match the cleaned Job Description text.
    - Single LLM call executed via LiteLLM: primary model `gpt-4o-mini`, with automatic fallback to `gemini/gemini-1.5-flash`.
    - Returns structured output strictly validated against the `Resume` Pydantic model.
 2. **Intelligent Reordering & Bullet Optimization**:
@@ -178,7 +186,7 @@ Generated PDFs are stored in Amazon S3. A PDF object is available only for previ
    - Places non-matching skills and projects at the bottom of their respective lists without deleting them.
    - Rewrites project bullet points using the **STAR method** to naturally integrate key target keywords.
 3. **Guardrails**: No new degrees, institutions, project titles, or fabricated achievements are introduced.
-4. **Stateful Persistence**: The resulting tailored JSON and its metadata are stored with parameterized raw SQL in the AWS RDS PostgreSQL `resumes` table and returned to the client.
+4. **Explicit Persistence**: A user action saves a named Baseline Resume or a Tailoring Session with parameterized raw SQL. Tailoring responses are never persisted automatically.
 
 ### 4.4 LaTeX-Safe Compilation Pipeline
 1. **Sanitization**: Before generating a LaTeX document, the tailored JSON is processed by a recursive sanitizer function to escape LaTeX reserved tokens:
@@ -219,11 +227,10 @@ All `/api/...` endpoints require a Cognito User Pool access token. The API valid
 
 | Method | Endpoint | Description | Request Payload | Response Payload |
 | :--- | :--- | :--- | :--- | :--- |
-| **POST** | `/api/resumes/` | Upload / Import new baseline structured resume | JSON Resume | Saved JSON Resume + `id` + metadata |
-| **GET** | `/api/resumes/{id}` | Fetch specific stored resume | *None* | Stored JSON Resume + metadata |
-| **PUT** | `/api/resumes/{id}` | Update stored resume JSON (Manual edit support) | JSON Resume | Updated JSON Resume |
-| **GET** | `/api/resumes/` | List all stored resumes (baseline & tailored) | *None* | List of resume metadata summaries |
-| **POST** | `/api/tailor/resume` | Tailor a resume using a pasted job description | `{ "job_description": "...", "baseline_resume": { ... } }` | Tailored resume JSON |
-| **POST** | `/api/resumes/{id}/compile` | Escape JSON, compile it, and store the PDF in S3 | *None* | PDF metadata |
-| **GET** | `/api/resumes/{id}/pdf` | Retrieve the generated PDF for preview or download | *None* | PDF stream |
-| **DELETE** | `/api/resumes/{id}/pdf` | Permanently delete the generated PDF from S3 | *None* | Deletion confirmation |
+| **POST** | `/api/baseline-resumes` | Save a named Baseline Resume | `{ "name": "...", "resume": { ... } }` | Baseline ID and name |
+| **GET** | `/api/baseline-resumes` | List Baseline Resume IDs and names | *None* | List of IDs and names |
+| **POST** | `/api/tailor/resume` | Tailor a pasted Job Description | `{ "job_description": "...", "baseline_resume_id": "..." }` or `{ "job_description": "...", "resume": { ... } }` | Current Resume JSON |
+| **POST** | `/api/sessions` | Explicitly save a new Tailoring Session | Session name, Job Description, baseline ID, Current Resume | Session ID and name |
+| **GET** | `/api/sessions` | List saved Tailoring Sessions | *None* | Session IDs and names |
+| **GET** | `/api/sessions/{id}` | Load one saved Tailoring Session | *None* | Job Description, baseline ID, Current Resume |
+| **PUT** | `/api/sessions/{id}` | Explicitly replace a saved Tailoring Session | Session name, Job Description, baseline ID, Current Resume | Session ID and name |

@@ -5,3 +5,4 @@ pytest-asyncio
 litellm
 python-dotenv
 PyJWT[crypto]
+psycopg[binary,pool]

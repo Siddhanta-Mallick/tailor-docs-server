@@ -174,6 +174,21 @@ def test_cors_allows_authorization_header(client):
     assert "authorization" in response.headers["access-control-allow-headers"].lower()
 
 
+def test_cors_allows_session_reads_and_updates(client):
+    response = client.options(
+        "/api/sessions",
+        headers={
+            "Origin": "http://localhost:5173",
+            "Access-Control-Request-Method": "PUT",
+        },
+    )
+
+    assert response.status_code == 200
+    assert {"GET", "POST", "PUT"}.issubset(
+        set(response.headers["access-control-allow-methods"].split(", "))
+    )
+
+
 @pytest.mark.parametrize("path", ["/docs", "/redoc", "/openapi.json"])
 def test_documentation_endpoints_are_disabled(client, path):
     response = client.get(path)

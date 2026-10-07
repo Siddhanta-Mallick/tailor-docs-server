@@ -21,7 +21,7 @@ TailorDocs is a high-performance, automated resume and cover letter tailoring to
   - Current milestone: direct manual job-description input with a 15,000-character budget before LLM tailoring.
    - Cognito User Pool access-token authentication for all API endpoints; the verified `sub` identifies the user.
   - LLM-based targeted resume tailoring (via LiteLLM with `gpt-4o-mini` primary and `gemini/gemini-1.5-flash` fallback) using zero-hallucination guardrails and priority reordering.
-  - Stateful resume lifecycle: raw SQL access to PostgreSQL on AWS RDS stores baseline and tailored resume JSON with metadata (`company_name`, `position`, `is_baseline`, `parent_resume_id`). No ORM or SQLAlchemy is used.
+   - Explicit tailoring persistence: raw SQL access to PostgreSQL stores named Baseline Resumes and Tailoring Sessions. A session references its selected Baseline Resume and stores its Current Resume. No ORM or SQLAlchemy is used.
   - Recursive LaTeX-safe sanitization of all string outputs to prevent compilation failure.
   - Execution of a Python JSON-to-LaTeX translation script.
   - Compilation of LaTeX source into polished PDF via Tectonic in Docker and storage of the generated PDF in Amazon S3 for preview, download, or permanent deletion.
@@ -40,24 +40,23 @@ TailorDocs is a high-performance, automated resume and cover letter tailoring to
 * Ingestion must automatically normalize string contact identifiers (email, LinkedIn, GitHub) into `{ "url": "...", "display": "..." }` object structures.
 
 ### FR-2: Manual Job-Description Input
-* The tailoring endpoint accepts a manually pasted `job_description` and a baseline resume in the same request.
-* Job-description text must be non-empty and is capped at 15,000 characters before LLM tailoring. The backend does not persist the input in this milestone.
+* The tailoring endpoint accepts a manually pasted `job_description` plus either a saved Baseline Resume ID or a client-provided Tailoring Input.
+* Job-description text must be non-empty and is capped at 15,000 characters before LLM tailoring. Tailoring does not persist its input or Current Resume automatically.
 
 ### FR-3: Local Semantic Alignment & Scoring
 * Map individual job requirements to relevant resume sections and skills.
 * Generate a comprehensive "ATS Alignment Score" reflecting keyword density, semantic coverage, and formatting structure.
 
 ### FR-4: Bullet Point & Section Tailoring (LLM-based)
-* A single LLM call is executed with LiteLLM (primary: `gpt-4o-mini`, fallback: `gemini/gemini-1.5-flash`), taking both the cleaned job description text and the user's existing baseline resume JSON.
+* A single LLM call is executed with LiteLLM (primary: `gpt-4o-mini`, fallback: `gemini/gemini-1.5-flash`), taking both the cleaned Job Description text and validated Tailoring Input JSON.
 * **Zero-Hallucination Constraint**: The LLM must not invent new degrees, institutions, project titles, or fake metrics.
 * **Intelligent Reordering**: Reorders skills and projects such that items and bullet points matching the target job description appear at the top, while non-matching items are preserved but moved to the bottom of their respective lists.
 * Rewrites project bullet points using the STAR method (Situation, Task, Action, Result) integrating relevant keywords from the job description.
 
 ### FR-5: Stateful Resume and PDF Lifecycle
-* Store baseline and tailored JSON resumes in a PostgreSQL `resumes` table on AWS RDS using raw SQL. Do not use an ORM or SQLAlchemy.
-* Metadata tracks `id`, `parent_resume_id`, `is_baseline`, `company_name`, `position`, `data` (`JSONB` payload), `created_at`, and `updated_at`.
-* Store each generated PDF in Amazon S3. It may only be retrieved for preview or download, or deleted permanently.
-* Expose endpoints to retrieve, update, re-tailor, compile, preview/download, and delete stored resumes and generated PDFs.
+* Save Baseline Resume JSON in `baseline_resumes` and Tailoring Session data in `sessions` using raw SQL. Do not use an ORM or SQLAlchemy.
+* A session stores its user owner, name, Job Description, selected baseline foreign key, Current Resume JSON, and nullable JD scores.
+* The user explicitly saves Baseline Resumes and Tailoring Sessions; no tailoring response is stored automatically.
 
 ### FR-6: LaTeX-Safe Compilation Pipeline
 * Traversed recursively, all string properties of the JSON must be sanitized to escape LaTeX control characters (`&`, `%`, `$`, `_`, `{`, `}`, `~`, `^`, `\`).

@@ -3,6 +3,7 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
+from app import database
 from app.auth import require_user_id
 from app.main import app
 from app.models.resume import Resume
@@ -42,7 +43,7 @@ def test_returns_only_tailored_resume(monkeypatch):
 
     response = client.post(
         "/api/tailor/resume",
-        json={"job_description": "Build reliable APIs.", "baseline_resume": BASELINE},
+        json={"job_description": "Build reliable APIs.", "resume": BASELINE},
     )
 
     assert response.status_code == 200
@@ -53,7 +54,7 @@ def test_rejects_missing_or_whitespace_job_description():
     for description in (None, "  \n"):
         response = client.post(
             "/api/tailor/resume",
-            json={"job_description": description, "baseline_resume": BASELINE},
+            json={"job_description": description, "resume": BASELINE},
         )
         assert response.status_code == 422
 
@@ -67,7 +68,7 @@ def test_invalid_baseline_is_rejected_before_generation(monkeypatch):
 
     response = client.post(
         "/api/tailor/resume",
-        json={"job_description": "Build reliable APIs.", "baseline_resume": invalid},
+        json={"job_description": "Build reliable APIs.", "resume": invalid},
     )
 
     assert response.status_code == 422
@@ -83,7 +84,7 @@ def test_invalid_generated_resume_returns_safe_502(monkeypatch):
 
     response = client.post(
         "/api/tailor/resume",
-        json={"job_description": "Build reliable APIs.", "baseline_resume": BASELINE},
+        json={"job_description": "Build reliable APIs.", "resume": BASELINE},
     )
 
     assert response.status_code == 502
@@ -109,9 +110,34 @@ def test_truncates_pasted_job_description_before_generation(monkeypatch):
 
     response = client.post(
         "/api/tailor/resume",
-        json={"job_description": description, "baseline_resume": BASELINE},
+        json={"job_description": description, "resume": BASELINE},
     )
 
     assert response.status_code == 200
     assert description[:15_000] in calls[0]["messages"][1]["content"]
     assert description not in calls[0]["messages"][1]["content"]
+
+
+def test_loads_an_owned_baseline_by_id_without_persisting_generation(monkeypatch):
+    from types import SimpleNamespace
+
+    baseline_id = "b0e1e111-1111-4111-8111-111111111111"
+
+    async def get_baseline(user_id, requested_id):
+        assert user_id == "cognito-user-id"
+        assert str(requested_id) == baseline_id
+        return {"baseline_resume_id": requested_id, "resume": BASELINE}
+
+    async def complete(**kwargs):
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(BASELINE)))])
+
+    monkeypatch.setattr(database, "get_baseline_resume", get_baseline)
+    monkeypatch.setattr("app.services.tailorer.acompletion", complete)
+
+    response = client.post(
+        "/api/tailor/resume",
+        json={"job_description": "Build reliable APIs.", "baseline_resume_id": baseline_id},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == BASELINE
